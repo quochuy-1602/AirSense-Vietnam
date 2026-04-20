@@ -1,226 +1,201 @@
-# Vietnam Air Quality Data Pipeline
+# AirSense Vietnam
 
-End-to-end AWS data pipeline for collecting, processing, and analyzing air quality data from 5 Vietnamese provinces using Medallion architecture (Bronze → Silver → Gold).
-
-![ETL Pipeline Architecture](https://res.cloudinary.com/dptjhpkmv/image/upload/v1776009361/AWS-Project-CLF-Trang-2.drawio_1_im4ck4.png)
+An end-to-end air quality analytics platform for 5 Vietnamese cities — combining a production-grade AWS data pipeline with a machine learning layer for AQI forecasting and anomaly detection.
 
 ---
 
-## 📋 Table of Contents
+## Overview
 
-- [Architecture Overview](#architecture-overview)
+Air pollution is a growing concern in Vietnam, yet real-time, city-level analytics remain scarce. This project builds a complete data platform that:
+
+- **Ingests** real-time AQI data (3x/day via WAQI API) + historical records (Kaggle 2021)
+- **Transforms** raw data through a Medallion architecture (Bronze → Silver → Gold)
+- **Validates** data quality automatically before promoting to analytics layer
+- **Forecasts** AQI 24h ahead using XGBoost and LSTM models
+- **Detects** pollution anomalies using Isolation Forest
+- **Orchestrates** everything serverlessly on AWS
+
+Cities covered: **Ha Noi, Ho Chi Minh City, Da Nang, Gia Lai, Cao Bang**
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        INGESTION                                │
+│                                                                 │
+│  EventBridge (3x/day) → Lambda (WAQI API) → S3 Bronze          │
+│  Kaggle CSV (one-time manual upload)       → S3 Bronze          │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     BRONZE LAYER (S3)                           │
+│  api_raw/        partitioned: city / year / month / day         │
+│  historical_csv/ one-time Kaggle CSV                            │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+               ┌──────────────┴──────────────┐
+               ▼                             ▼
+        Glue: bronze_to_silver_api    Glue: bronze_to_silver_csv
+        (incremental, bookmarked)     (one-time, flag-guarded)
+               └──────────────┬──────────────┘
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     SILVER LAYER (S3)                           │
+│  dim_station/    station metadata                               │
+│  fact_aqi/       measurements, partitioned by city/year/month   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                  Lambda: Data Quality Check (Athena)
+                              │
+               ┌──────────────┴──────────────┐
+               ▼                             ▼
+         DQ Passed                      DQ Failed
+               │                             │
+               ▼                             ▼
+      Glue: silver_to_gold              SNS Alert
+               │                       (pipeline stops)
+               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      GOLD LAYER (S3)                            │
+│  gold_aqi_daily_summary/   daily aggregates per city            │
+│  gold_aqi_city_ranking/    monthly city rankings                │
+│  gold_station_summary/     station-level monthly metrics        │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     ML LAYER (SageMaker)                        │
+│                                                                 │
+│  Glue: silver_to_ml_features  (lag/rolling/time features)       │
+│             │                                                   │
+│    ┌────────┴────────┐                                          │
+│    ▼                 ▼                                          │
+│  XGBoost         Isolation Forest                               │
+│  Forecasting     Anomaly Detection                              │
+│    └────────┬────────┘                                          │
+│             ▼                                                   │
+│  Lambda: ml_inference (Batch Transform → Gold ML tables)        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Orchestration:** AWS Step Functions manages the full ETL flow and ML pipeline independently.
+
+---
+
+## Table of Contents
+
 - [Data Sources](#data-sources)
-- [S3 Folder Structure](#s3-folder-structure)
-- [System Components](#system-components)
-- [Schema](#schema)
-- [Installation & Deployment](#installation--deployment)
-- [Data Quality Checks](#data-quality-checks)
-- [Technical Notes](#technical-notes)
-
----
-
-## Architecture Overview
-
-```
-EventBridge (3x/day)
-        │
-        ▼
-Lambda: WAQI Ingestion ──────────────────────────────────────┐
-        │                                                     │
-        │ (one-time)                                          │
-Kaggle CSV (manual upload)                                    │
-        │                                                     │
-        ▼                                                     ▼
-┌───────────────────────────────────────────────────────────────────┐
-│                        BRONZE LAYER (S3)                          │
-│  api_raw/ (partitioned: queried_city/year/month/day)              │
-│  historical_csv/ (one-time Kaggle CSV)                            │
-└───────────────────────────────────────────────────────────────────┘
-        │                          │
-        ▼                          ▼
- Glue Job:                  Glue Job:
- bronze_to_silver_api       bronze_to_silver_csv
- (incremental, bookmarked)  (one-time, flag-guarded)
-        │                          │
-        └──────────┬───────────────┘
-                   ▼
-┌───────────────────────────────────────────────────────────────────┐
-│                        SILVER LAYER (S3)                          │
-│  reference/dim_station/                                           │
-│  statistic/fact_aqi/ (partitioned: queried_city/year/month)       │
-└───────────────────────────────────────────────────────────────────┘
-                   │
-                   ▼
-        Lambda: DQ Check (Athena)
-                   │
-          ┌────────┴────────┐
-          ▼                 ▼
-    quality_passed      quality_failed
-          │                 │
-          ▼                 ▼
-  Glue Job:              SNS Alert
-  silver_to_gold         (stop pipeline)
-          │
-          ▼
-┌───────────────────────────────────────────────────────────────────┐
-│                         GOLD LAYER (S3)                           │
-│  gold_aqi_daily_summary/  (partitioned: year/month)               │
-│  gold_aqi_city_ranking/                                           │
-│  gold_station_summary/    (partitioned: year/month)               │
-└───────────────────────────────────────────────────────────────────┘
-                   │
-                   ▼
-              SNS: Success
-```
-
-**Orchestration:** AWS Step Functions orchestrates the entire flow: API → Silver → DQ → Gold → SNS.
+- [Project Structure](#project-structure)
+- [AWS Resources](#aws-resources)
+- [Data Schema](#data-schema)
+- [Data Quality Framework](#data-quality-framework)
+- [Machine Learning Layer](#machine-learning-layer)
+- [Deployment Guide](#deployment-guide)
+- [Running Notebooks Locally](#running-notebooks-locally)
 
 ---
 
 ## Data Sources
 
-### Source 1: WAQI API (real-time)
-- **Endpoint:** `https://api.waqi.info/feed/{city}/?token={token}`
-- **Frequency:** 3 times/day (ICT 08:00, 14:00, 20:00)
-- **Cities:** `ha-noi`, `ho-chi-minh-city`, `da-nang`, `gia-lai`, `cao-bang`
-- **Note:** Some stations (cao-bang, ho-chi-minh-city) may return stale data when offline
+| Source | Type | Frequency | Scope |
+|--------|------|-----------|-------|
+| [WAQI API](https://aqicn.org/api/) | Real-time JSON | 3x/day (08:00, 14:00, 20:00 ICT) | 5 cities |
+| Kaggle CSV | Historical | One-time load | 24 stations, year 2021 |
 
-### Source 2: Kaggle CSV (historical)
-- **File:** `historical_air_quality_2021_en.csv`
-- **Scope:** Year 2021, 24 stations, 5 provinces
-- **Run once:** Flag guard at `s3://{silver_bucket}/_control/csv_ingestion_done.flag`
+### Vietnam AQI Standard
 
-### AQI Pollution Level (Vietnam Standard)
-
-| AQI | Level |
-|-----|-------|
-| 0–50 | Good |
-| 51–100 | Moderate |
-| 101–150 | Unhealthy for Sensitive Groups |
-| 151–200 | Unhealthy |
-| 201–300 | Very Unhealthy |
+| AQI Range | Level |
+|-----------|-------|
+| 0 – 50 | Good |
+| 51 – 100 | Moderate |
+| 101 – 150 | Unhealthy for Sensitive Groups |
+| 151 – 200 | Unhealthy |
+| 201 – 300 | Very Unhealthy |
 | 300+ | Hazardous |
 
 ---
 
-## S3 Folder Structure
+## Project Structure
 
 ```
-data-pipeline-bronze-ap-dev/
-├── api_raw/
-│   ├── queried_city=ha-noi/
-│   │   └── year=2026/month=04/day=12/
-│   │       └── ha-noi_2026-04-12T01-00-00Z.json
-│   ├── queried_city=da-nang/
-│   ├── queried_city=ho-chi-minh-city/
-│   ├── queried_city=gia-lai/
-│   └── queried_city=cao-bang/
-└── historical_csv/
+AirSense-Vietnam/
+├── glue_jobs/
+│   ├── bronze_to_silver_statistics/
+│   │   ├── bronze_to_silver_statistics_api.py   # Incremental API → Silver
+│   │   └── bronze_to_silver_statistics_csv.py   # One-time CSV → Silver
+│   ├── silver_to_gold_analytics.py              # Silver → Gold aggregations
+│   └── silver_to_ml_features.py                 # Feature engineering for ML
+├── lamdas/
+│   ├── air-quality-api-ingestion/
+│   │   └── lamda_function.py                    # WAQI API ingestion
+│   ├── quality_data/
+│   │   └── lamda_function.py                    # DQ checks via Athena
+│   └── ml_inference/
+│       └── lamda_function.py                    # SageMaker Batch Transform
+├── sagemaker/
+│   ├── forecasting/
+│   │   ├── train.py                             # XGBoost training
+│   │   ├── inference.py
+│   │   └── requirements.txt
+│   └── anomaly/
+│       ├── train.py                             # Isolation Forest training
+│       ├── inference.py
+│       └── requirements.txt
+├── notebooks/
+│   ├── 01_eda.ipynb                             # Exploratory data analysis
+│   ├── 02_feature_engineering.ipynb             # Feature pipeline prototyping
+│   ├── 03_aqi_forecasting.ipynb                 # XGBoost + LSTM + SHAP
+│   └── 04_anomaly_detection.ipynb               # Isolation Forest + Z-score
+├── step_functions/
+│   ├── pipeline_orchestation.json               # ETL state machine
+│   └── ml_pipeline.json                         # ML training + inference
+└── raw_data_csv/
     └── historical_air_quality_2021_en.csv
-
-data-pipeline-silver-ap-dev/
-├── _control/
-│   └── csv_ingestion_done.flag
-├── reference/
-│   └── dim_station/          ← Parquet, overwrite
-└── statistic/
-    └── fact_aqi/             ← Parquet, partitioned
-        └── queried_city=ha-noi/year=2026/month=04/
-
-data-pipeline-gold-ap-dev/
-├── gold_aqi_daily_summary/   ← Parquet, partitioned year/month
-├── gold_aqi_city_ranking/    ← Parquet, no partition
-└── gold_station_summary/     ← Parquet, partitioned year/month
 ```
 
 ---
 
-## System Components
-
-### AWS Resources
+## AWS Resources
 
 | Service | Resource | Purpose |
 |---------|----------|---------|
-| S3 | `data-pipeline-bronze-ap-dev` | Raw data storage |
-| S3 | `data-pipeline-silver-ap-dev` | Cleaned data storage |
-| S3 | `data-pipeline-gold-ap-dev` | Analytics-ready storage |
-| Glue Database | `glue-pipeline-bronze-dev` | Bronze catalog |
-| Glue Database | `glue-pipeline-silver-dev` | Silver catalog |
-| Glue Database | `glue-pipeline-gold-dev` | Gold catalog |
-| Glue Table | `api_air_quality_json` | Bronze API JSON (Crawler) |
-| Glue Table | `historical_air_quality_2021` | Bronze CSV (manual) |
-| Glue Table | `dim_station` | Silver |
-| Glue Table | `fact_aqi` | Silver |
-| Glue Table | `gold_aqi_city_ranking` | Gold |
-| Glue Table | `gold_aqi_daily_summary` | Gold |
-| Glue Table | `gold_station_summary` | Gold |
-| Lambda | `lambda_waqi_ingestion` | WAQI API crawling |
-| Lambda | `dq_check_silver` | Data quality checks |
-| Step Functions | `aq-pipeline` | Orchestration |
-| EventBridge Schedule | `aq-ingestion-morning/afternoon/evening` | Trigger Lambda |
-| SNS Topic | `data-pipeline-alerts-dev` | Alerts & notifications |
-| Athena | — | DQ queries on Silver |
-| QuickSight | — | Visualization |
-
-### Glue Jobs
-
-| Job | Script | Trigger | Bookmark |
-|-----|--------|---------|----------|
-| `bronze_to_silver_statistics_csv` | `bronze_to_silver_statistics_csv.py` | Manual (one-time) | Disabled |
-| `bronze_to_silver_statistics_api` | `bronze_to_silver_statistics_api.py` | Step Functions | **Enabled** |
-| `silver_to_gold_analytics` | `silver_to_gold_analytics.py` | Step Functions | Disabled |
+| S3 | `data-pipeline-bronze-ap-dev` | Raw data |
+| S3 | `data-pipeline-silver-ap-dev` | Cleaned data |
+| S3 | `data-pipeline-gold-ap-dev` | Analytics-ready data |
+| S3 | `data-pipeline-ml-ap-dev` | ML features, model artifacts |
+| Glue | 4 databases (bronze/silver/gold/ml) | Data catalog |
+| Glue | 5 ETL jobs | Transformation |
+| Lambda | `lambda_waqi_ingestion` | API crawling |
+| Lambda | `dq_check_silver` | Data quality |
+| Lambda | `ml_inference` | Batch inference |
+| Step Functions | `aq-pipeline`, `ml-pipeline` | Orchestration |
+| EventBridge | 3 schedules | Ingestion triggers |
+| SageMaker | Training Jobs, Model Registry, Batch Transform | ML lifecycle |
+| Athena | — | DQ queries |
+| SNS | `data-pipeline-alerts-dev` | Notifications |
 
 ---
 
-## Schema
+## Data Schema
 
-### Bronze: `api_air_quality_json`
-```
-status          string
-data            struct (nested JSON from WAQI API)
-queried_city    string  [partition]
-year            string  [partition]
-month           string  [partition]
-day             string  [partition]
-```
+### Silver Layer
 
-### Bronze: `historical_air_quality_2021`
+**`dim_station`**
 ```
-station_id          string
-aqi_index           string
-location            string
-station_name        string
-url                 string
-dominant_pollutant  string
-co                  string
-dew                 string
-humidity            string
-no2                 string
-o3                  string
-pressure            string
-pm10                string
-pm25                string
-so2                 string
-temperature         string
-wind                string
-data_time_s         string
-data_time_tz        string
-status              string
-alert_level         string
-```
-
-### Silver: `dim_station`
-```
-waqi_idx        int   
+waqi_idx        int
 station_name    string
 queried_city    string
 lat             double
 lon             double
 url             string
-source          string  ('kaggle' | 'api')
+source          string   ('kaggle' | 'api')
 ```
 
-### Silver: `fact_aqi`
+**`fact_aqi`**
 ```
 waqi_idx            int
 measured_at         timestamp
@@ -236,230 +211,222 @@ humidity            double
 temperature         double
 pressure            double
 wind                double
-source              string  ('kaggle' | 'api')
+source              string
 ingested_at         string
-queried_city        string  [partition]
-year                string  [partition]
-month               string  [partition]
+queried_city        string   [partition]
+year                string   [partition]
+month               string   [partition]
 ```
 
-### Gold: `gold_aqi_daily_summary`
-```
-queried_city        string
-date                date
-avg_aqi             double
-max_aqi             double
-min_aqi             double
-avg_pm25            double
-avg_pm10            double
-avg_humidity        double
-avg_temperature     double
-station_count       int
-record_count        int
-dominant_pollutant  string  (mode of the day)
-pollution_level     string  (based on max_aqi)
-_aggregated_at      timestamp
-year                string  [partition]
-month               string  [partition]
-```
+### Gold Layer
 
-### Gold: `gold_aqi_city_ranking`
-```
-queried_city        string
-year                string
-month               string
-avg_aqi             double
-max_aqi             double
-min_aqi             double
-avg_pm25            double
-avg_pm10            double
-record_count        int
-days_good           int
-days_moderate       int
-days_sensitive      int
-days_unhealthy      int
-days_very_unhealthy int
-days_hazardous      int
-dominant_pollutant  string  (mode of the month)
-pollution_level     string  (based on avg_aqi)
-aqi_rank            int     (DENSE_RANK DESC — 1 = most polluted)
-pm25_rank           int     (DENSE_RANK DESC)
-_aggregated_at      timestamp
-```
+**`gold_aqi_daily_summary`** — Daily city-level aggregates + pollution level classification
 
-### Gold: `gold_station_summary`
-```
-waqi_idx            int
-station_name        string
-queried_city        string
-lat                 double
-lon                 double
-year                string
-month               string
-avg_aqi             double
-max_aqi             double
-min_aqi             double
-avg_pm25            double
-avg_pm10            double
-avg_humidity        double
-avg_temperature     double
-record_count        int
-dominant_pollutant  string  (mode of station/month)
-pollution_level     string  (based on avg_aqi)
-rank_in_city        int     (DENSE_RANK within same city/month)
-_aggregated_at      timestamp
-year                string  [partition]
-month               string  [partition]
-```
+**`gold_aqi_city_ranking`** — Monthly city comparison with dense rank by AQI and PM2.5
+
+**`gold_station_summary`** — Monthly station metrics with intra-city ranking
+
+**`gold_aqi_forecast`** — 24h-ahead AQI predictions per city per run
+
+**`gold_aqi_anomalies`** — Anomaly scores and flags per observation per run
 
 ---
 
-## Installation & Deployment
+## Data Quality Framework
+
+After each Silver transformation, Lambda `dq_check_silver` runs **8 checks** via Athena before allowing Gold promotion:
+
+| Check | Description | Threshold |
+|-------|-------------|-----------|
+| `row_count` | Minimum records exist | ≥ 10 rows |
+| `null_pct` | Null rate on critical columns | ≤ 5% |
+| `aqi_range` | AQI values within valid range | 0 ≤ AQI ≤ 500 |
+| `city_coverage` | All 5 cities present | 0 missing |
+| `source_validity` | Only known source values | 0 invalid |
+| `freshness` | Data ingested within 48h | > 0 fresh rows |
+| `dim_station_row_count` | Station dimension populated | > 0 rows |
+| `dim_station_city_coverage` | Stations for all 5 cities | 0 missing |
+
+Any failed check → SNS alert + pipeline stops. Gold job does not run.
+
+---
+
+## Machine Learning Layer
+
+### Feature Engineering (`silver_to_ml_features`)
+
+PySpark Glue job that builds the ML feature table from Silver:
+
+- **Lag features:** AQI at t-1h, t-3h, t-6h, t-12h, t-24h
+- **Rolling stats:** mean/std over 3h, 24h, 7d windows
+- **Time features:** hour, day_of_week, month (+ cyclical sin/cos encoding)
+- **Target:** `aqi` at `t + forecast_horizon_h`
+
+### Models
+
+| Model | Task | Algorithm | Output Table |
+|-------|------|-----------|--------------|
+| Forecasting | Predict AQI 24h ahead | XGBoost | `gold_aqi_forecast` |
+| Anomaly Detection | Flag pollution spikes | Isolation Forest | `gold_aqi_anomalies` |
+
+Both models are registered in **SageMaker Model Registry** with auto-approval gating on MAE threshold for the forecasting model.
+
+### Inference Flow
+
+Lambda `ml_inference` runs in three modes:
+
+- `trigger` — Starts SageMaker Batch Transform jobs
+- `collect` — Reads transform output CSVs → writes JSON Lines to Gold
+- `full` — End-to-end trigger + wait + collect
+
+---
+
+## Deployment Guide
 
 ### Prerequisites
 
-- AWS CLI configured (`aws configure`)
+- AWS CLI configured
 - Python 3.9+
-- IAM permissions: S3, Glue, Lambda, EventBridge, Step Functions, SNS, Athena
+- IAM permissions: S3, Glue, Lambda, EventBridge, Step Functions, SNS, Athena, SageMaker
 
 ### 1. Create S3 Buckets
 
 ```bash
-for bucket in bronze silver gold; do
-  aws s3 mb s3://data-pipeline-${bucket}-ap-dev \
-    --region ap-southeast-2
+for bucket in bronze silver gold ml; do
+  aws s3 mb s3://data-pipeline-${bucket}-ap-dev --region ap-southeast-2
 done
 ```
-### 1.1 Create more bucket for Athena (If want using AWS Athena)
+
 ### 2. Create Glue Databases
 
 ```bash
-for db in bronze silver gold; do
+for db in bronze silver gold ml; do
   aws glue create-database \
     --database-input "{\"Name\": \"glue-pipeline-${db}-dev\"}" \
     --region ap-southeast-2
 done
 ```
-### 3. Upload Glue Job Scripts to S3
+
+### 3. Upload Glue Scripts
 
 ```bash
-aws s3 cp glue_jobs/bronze_to_silver_statistics/bronze_to_silver_statistics_csv.py \
-  s3://aws-glue-assets-<account-id>-<region>/scripts/
-
-aws s3 cp glue_jobs/bronze_to_silver_statistics/bronze_to_silver_statistics_api.py \
-  s3://aws-glue-assets-<account-id>-<region>/scripts/
-
-aws s3 cp glue_jobs/silver_to_gold_analytics.py \
-  s3://aws-glue-assets-<account-id>-<region>/scripts/
+for script in \
+  glue_jobs/bronze_to_silver_statistics/bronze_to_silver_statistics_csv.py \
+  glue_jobs/bronze_to_silver_statistics/bronze_to_silver_statistics_api.py \
+  glue_jobs/silver_to_gold_analytics.py \
+  glue_jobs/silver_to_ml_features.py; do
+    aws s3 cp $script s3://aws-glue-assets-<account-id>-ap-southeast-2/scripts/
+done
 ```
 
-### 4. Create Glue Jobs
+### 4. Glue Job Parameters
 
-Create each job in Glue Console with the following job parameters:
-
-**bronze_to_silver_statistics_csv:**
-```
---bronze_database   glue-pipeline-bronze-dev
---bronze_table      historical_air_quality_2021
---bronze_bucket     data-pipeline-bronze-ap-dev
---silver_bucket     data-pipeline-silver-ap-dev
---silver_database   glue-pipeline-silver-dev
---sns_topic_arn     arn:aws:sns:<region>:<account-id>:data-pipeline-alerts-dev
-```
-
-**bronze_to_silver_statistics_api:**
+**`bronze_to_silver_statistics_api`** (enable Job Bookmark):
 ```
 --bronze_database   glue-pipeline-bronze-dev
 --bronze_table      api_air_quality_json
 --silver_bucket     data-pipeline-silver-ap-dev
 --silver_database   glue-pipeline-silver-dev
 --stale_hours       48
---sns_topic_arn     arn:aws:sns:<region>:<account-id>:data-pipeline-alerts-dev
+--sns_topic_arn     arn:aws:sns:<region>:<account>:data-pipeline-alerts-dev
 ```
-> ⚠️ **Enable Job Bookmark** for this job: Glue Console → Job details → Advanced → Job bookmark → Enable
 
-**silver_to_gold_analytics:**
+**`bronze_to_silver_statistics_csv`**:
+```
+--bronze_database   glue-pipeline-bronze-dev
+--bronze_table      historical_air_quality_2021
+--bronze_bucket     data-pipeline-bronze-ap-dev
+--silver_bucket     data-pipeline-silver-ap-dev
+--silver_database   glue-pipeline-silver-dev
+--sns_topic_arn     arn:aws:sns:<region>:<account>:data-pipeline-alerts-dev
+```
+
+**`silver_to_gold_analytics`**:
 ```
 --silver_database   glue-pipeline-silver-dev
 --gold_bucket       data-pipeline-gold-ap-dev
 --gold_database     glue-pipeline-gold-dev
 ```
 
-### 5. Deploy Lambda Functions
+### 5. Lambda Environment Variables
 
-**lambda_waqi_ingestion** — Environment variables:
+**`lambda_waqi_ingestion`**:
 ```
-WAQI_API_TOKEN          = <your_token>
-S3_BUCKET_BRONZE        = data-pipeline-bronze-ap-dev
-SNS_ALERT_TOPIC_ARN     = arn:aws:sns:<region>:<account-id>:data-pipeline-alerts-dev
-WAQI_CITIES             = ha-noi,ho-chi-minh-city,da-nang,gia-lai,cao-bang
+WAQI_API_TOKEN      = <your_token>
+S3_BUCKET_BRONZE    = data-pipeline-bronze-ap-dev
+SNS_ALERT_TOPIC_ARN = arn:aws:sns:<region>:<account>:data-pipeline-alerts-dev
+WAQI_CITIES         = ha-noi,ho-chi-minh-city,da-nang,gia-lai,cao-bang
 ```
 
-**dq_check_silver** — Environment variables:
+**`dq_check_silver`**:
 ```
 ATHENA_DATABASE         = glue-pipeline-silver-dev
 ATHENA_OUTPUT_LOCATION  = s3://data-pipeline-silver-ap-dev/athena-results/
-SNS_ALERT_TOPIC_ARN     = arn:aws:sns:<region>:<account-id>:data-pipeline-alerts-dev
+SNS_ALERT_TOPIC_ARN     = arn:aws:sns:<region>:<account>:data-pipeline-alerts-dev
 DQ_MIN_ROW_COUNT        = 10
 DQ_MAX_NULL_PERCENT     = 5.0
 DQ_FRESHNESS_HOURS      = 48
 DQ_SAMPLE_ROWS          = 1000
 ```
 
-### 5.1 Run Lambda and Create Crawler
-Run `lambda_waqi_ingestion` and then create/run a Glue Crawler for `s3://data-pipeline-bronze-ap-dev`
+**`ml_inference`**:
+```
+FORECAST_MODEL_PKG_GROUP  = aqi-forecast-models
+ANOMALY_MODEL_PKG_GROUP   = aqi-anomaly-models
+ML_FEATURES_BUCKET        = data-pipeline-ml-ap-dev
+GOLD_BUCKET               = data-pipeline-gold-ap-dev
+GOLD_DATABASE             = glue-pipeline-gold-dev
+BATCH_OUTPUT_BUCKET       = data-pipeline-ml-ap-dev
+SAGEMAKER_ROLE_ARN        = arn:aws:iam::<account>:role/SageMakerExecutionRole
+SNS_ALERT_TOPIC_ARN       = arn:aws:sns:<region>:<account>:data-pipeline-alerts-dev
+```
 
-### Note: Run manually "bronze_to_silver_statistics_csv" job
+### 6. EventBridge Schedules
 
-### 6. Configure EventBridge Schedules
-
-| Schedule | Cron (UTC) | ICT |
-|----------|-----------|-----|
+| Name | Cron (UTC) | ICT Time |
+|------|-----------|----------|
 | `aq-ingestion-morning` | `0 1 * * ? *` | 08:00 |
 | `aq-ingestion-afternoon` | `0 7 * * ? *` | 14:00 |
 | `aq-ingestion-evening` | `0 13 * * ? *` | 20:00 |
 
-### 7. Deploy Step Functions
+### 7. Step Functions
 
-Go to **Step Functions Console** → **Create state machine** → paste content from `step_functions/pipeline_orchestation.json`.
+Deploy both state machines from `step_functions/`:
+- `pipeline_orchestation.json` — ETL pipeline
+- `ml_pipeline.json` — ML training + inference
 
-Update the ARNs in the file before deploying:
-- `FunctionName`: ARN of `dq_check_silver`
-- `TopicArn`: ARN of SNS topic
+Update ARNs (Lambda, SNS, Glue job names) before deploying.
+
+### 8. SageMaker Model Package Groups
+
+```bash
+aws sagemaker create-model-package-group \
+  --model-package-group-name aqi-forecast-models
+
+aws sagemaker create-model-package-group \
+  --model-package-group-name aqi-anomaly-models
+```
 
 ---
 
-## Data Quality Checks
+## Running Notebooks Locally
 
-Lambda `dq_check_silver` runs **3 Athena queries** after each Silver Job:
+```bash
+pip install pandas numpy matplotlib seaborn scikit-learn xgboost \
+            shap statsmodels pyarrow torch joblib jupyter
+cd notebooks/
+jupyter lab
+```
 
-| Check | Description | Threshold |
-|-------|-------------|-----------|
-| `row_count` | Sufficient data | Min 10 rows |
-| `null_pct` | Null % for 4 critical columns | Max 5% |
-| `aqi_range` | 0 ≤ AQI ≤ 500 | 0 violations |
-| `city_coverage` | All 5 cities present | 0 missing |
-| `source_validity` | Only `kaggle` or `api` | 0 invalid |
-| `freshness` | New data within 48h | > 0 fresh rows |
-| `dim_station_row_count` | dim_station has data | > 0 stations |
-| `dim_station_city_coverage` | Stations cover 5 cities | 0 missing |
-
-If any check fails → SNS alert + Step Functions stops, Gold Job does not run.
+Run in order: `01 → 02 → 03 → 04`.  
+Notebook `02` produces `artifacts/features_2021.parquet` which `03` and `04` consume.
 
 ---
 
 ## Technical Notes
 
-### Glue Catalog Schema Issues
-Glue Crawler parses CSV numeric columns as `STRUCT<double: DOUBLE, string: STRING>` instead of native types. Job `bronze_to_silver_statistics_csv.py` handles this by checking schema dynamically and extracting the appropriate field.
+**Glue Catalog schema quirk:** Crawler parses CSV numeric columns as `STRUCT<double, string>` instead of native types. The CSV Glue job handles this by checking schema dynamically and extracting the correct field.
 
-### Job Bookmark
-Job `bronze_to_silver_statistics_api` uses Job Bookmark to only process new files from Bronze. To reprocess all data: **Glue Console → Job → Action → Reset job bookmark**.
+**Job Bookmark:** `bronze_to_silver_statistics_api` uses Job Bookmark for incremental processing. To reprocess all data: Glue Console → Job → Action → Reset job bookmark.
 
-### dominant_pollutant Anomaly
-Value `dominant_pollutant = 'aqi'` in CSV is an artifact from Excel (`#NAME?` → parsed incorrectly). Pipeline fixes this by assigning null to this value before writing to Silver.
-
-### SNS Notifications
-Both Bronze-to-Silver jobs support optional `--sns_topic_arn` parameter to send notifications when:
-- CSV job is skipped (already processed)
-- API job is skipped (no new records or all records are stale)
+**dominant_pollutant anomaly:** Value `'aqi'` in the CSV is an Excel artifact (`#NAME?` formula error parsed incorrectly). Pipeline replaces this with null before writing to Silver.
