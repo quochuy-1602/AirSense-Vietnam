@@ -84,6 +84,8 @@ Cities covered: **Ha Noi, Ho Chi Minh City, Da Nang, Gia Lai, Cao Bang**
 
 **Orchestration:** AWS Step Functions manages the full ETL flow and ML pipeline independently.
 
+![Architecture](./AirSense-Vietnam-pipeline.jpg)
+
 ---
 
 ## Table of Contents
