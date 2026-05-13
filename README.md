@@ -131,13 +131,13 @@ AirSense-Vietnam/
 │   │   └── bronze_to_silver_statistics_csv.py   # One-time CSV → Silver
 │   ├── silver_to_gold_analytics.py              # Silver → Gold aggregations
 │   └── silver_to_ml_features.py                 # Feature engineering for ML
-├── lamdas/
+├── lambdas/
 │   ├── air-quality-api-ingestion/
-│   │   └── lamda_function.py                    # WAQI API ingestion
+│   │   └── lambda_function.py                   # WAQI API ingestion
 │   ├── quality_data/
-│   │   └── lamda_function.py                    # DQ checks via Athena
+│   │   └── lambda_function.py                   # DQ checks via Athena
 │   └── ml_inference/
-│       └── lamda_function.py                    # SageMaker Batch Transform
+│       └── lambda_function.py                   # SageMaker Batch Transform
 ├── sagemaker/
 │   ├── forecasting/
 │   │   ├── train.py                             # XGBoost training
@@ -153,8 +153,24 @@ AirSense-Vietnam/
 │   ├── 03_aqi_forecasting.ipynb                 # XGBoost + LSTM + SHAP
 │   └── 04_anomaly_detection.ipynb               # Isolation Forest + Z-score
 ├── step_functions/
-│   ├── pipeline_orchestation.json               # ETL state machine
-│   └── ml_pipeline.json                         # ML training + inference
+│   ├── pipeline_orchestation.json               # ETL state machine (template)
+│   └── ml_pipeline.json                         # ML training + inference (template)
+├── infra/
+│   └── terraform/                               # Full IaC — S3, Glue, Lambda, SFN, SageMaker, IAM
+│       ├── s3.tf
+│       ├── glue.tf
+│       ├── lambda.tf
+│       ├── iam.tf
+│       ├── step_functions.tf
+│       ├── sagemaker.tf
+│       ├── sns.tf
+│       ├── variables.tf
+│       ├── outputs.tf
+│       └── README.md
+├── tests/
+│   ├── conftest.py
+│   ├── requirements-test.txt
+│   └── unit/                                    # pytest unit tests (46 tests, ~3s)
 └── raw_data_csv/
     └── historical_air_quality_2021_en.csv
 ```
@@ -393,11 +409,33 @@ SNS_ALERT_TOPIC_ARN       = arn:aws:sns:<region>:<account>:data-pipeline-alerts-
 
 ### 7. Step Functions
 
-Deploy both state machines from `step_functions/`:
-- `pipeline_orchestation.json` — ETL pipeline
-- `ml_pipeline.json` — ML training + inference
+> **Recommended:** deploy via Terraform (see *Infrastructure as Code* section
+> below). Terraform renders the JSON templates automatically with the correct
+> ARNs and job names. The instructions here are only for the manual path.
 
-Update ARNs (Lambda, SNS, Glue job names) before deploying.
+Both files in `step_functions/` are **templates** with `${VAR}` placeholders.
+For manual deployment, substitute all of them before `create-state-machine`:
+
+```bash
+export ACCOUNT_ID=<account>
+export AWS_REGION=ap-southeast-2
+export BRONZE_TO_SILVER_API=<glue-job-name>
+export SILVER_TO_GOLD_JOB=<glue-job-name>
+export SILVER_TO_ML_FEATURES=<glue-job-name>
+export DQ_LAMBDA_ARN=<arn>
+export ML_INFERENCE_LAMBDA_ARN=<arn>
+export SNS_TOPIC_ARN=<arn>
+export SAGEMAKER_ROLE_ARN=<arn>
+export ML_BUCKET=<bucket>
+
+for f in step_functions/*.json; do
+  envsubst < "$f" > "/tmp/$(basename $f)"
+  aws stepfunctions create-state-machine \
+    --name "$(basename $f .json)" \
+    --definition "file:///tmp/$(basename $f)" \
+    --role-arn "arn:aws:iam::${ACCOUNT_ID}:role/StepFunctionsExecutionRole"
+done
+```
 
 ### 8. SageMaker Model Package Groups
 
@@ -422,6 +460,64 @@ jupyter lab
 
 Run in order: `01 → 02 → 03 → 04`.  
 Notebook `02` produces `artifacts/features_2021.parquet` which `03` and `04` consume.
+
+---
+
+## Infrastructure as Code (Terraform)
+
+Everything above can be deployed in one shot with Terraform (see `infra/terraform/`):
+
+```bash
+cd infra/terraform
+cp dev.example.tfvars dev.tfvars      # edit values
+export TF_VAR_waqi_api_token="<your-token>"
+
+terraform init
+terraform apply -var-file=dev.tfvars
+```
+
+Provisions: 6 S3 buckets, 4 Glue databases, 3 Glue jobs, 3 Lambda functions,
+2 Step Functions state machines, 2 SageMaker Model Package Groups,
+SNS topic + 3 EventBridge schedules, and least-privilege IAM roles for each
+service.
+
+Full guide: [`infra/terraform/README.md`](infra/terraform/README.md).
+
+---
+
+## Testing
+
+Unit-test suite under `tests/` covers Lambda handlers, SageMaker inference
+handlers, feature-engineering math, and DQ check evaluation logic.
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r tests/requirements-test.txt
+pytest tests/ -v
+```
+
+The suite runs in ~3s with no AWS access (boto3 clients are stubbed or
+replaced with `moto` where needed).
+
+---
+
+## CI / CD
+
+GitHub Actions workflows in `.github/workflows/`:
+
+| Workflow | Triggers | What it does |
+|---|---|---|
+| `lint.yml` | push / PR to `main` | `flake8` (fatal errors), `black`, `isort`, `terraform fmt`, `terraform validate` |
+| `test.yml` | push / PR to `main` | `pytest` on Python 3.11 + 3.12, uploads coverage to Codecov |
+| `terraform.yml` | PR changing `infra/`, `step_functions/`, or `lambdas/` | `terraform plan` via AWS OIDC, comments plan on the PR |
+
+**Required repo secrets (optional — the workflow skips gracefully if absent):**
+
+| Secret / Variable | Purpose |
+|---|---|
+| `AWS_TF_ROLE_ARN` (secret) | OIDC role ARN Terraform assumes during `plan` |
+| `WAQI_API_TOKEN`  (secret) | Forwarded to `TF_VAR_waqi_api_token` |
+| `ALERT_EMAIL`     (var)    | Forwarded to `TF_VAR_alert_email` |
 
 ---
 

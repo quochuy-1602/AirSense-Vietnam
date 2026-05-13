@@ -2,7 +2,7 @@
 Lambda: Data Quality Checks — Silver fact_aqi + dim_station
 ──────────────────────────────────────────────────────────────
 Uses 3 Athena queries:
-  - Query 1: fact_aqi metrics (sample 1000 rows to avoid full scan)
+  - Query 1: fact_aqi metrics (sample DQ_SAMPLE_ROWS rows to avoid full scan)
   - Query 2: freshness check (WHERE ingested_at >= cutoff — partition filter)
   - Query 3: dim_station check (lightweight, small data)
 
@@ -23,7 +23,7 @@ Environment Variables:
     DQ_MIN_ROW_COUNT        — min rows fact_aqi (default: 10)
     DQ_MAX_NULL_PERCENT     — max null % (default: 5.0)
     DQ_FRESHNESS_HOURS      — freshness window (default: 48)
-    DQ_SAMPLE_ROWS          — sample size for DQ scan (default: 1000)
+    DQ_SAMPLE_ROWS          — sample size for DQ scan (default: 10000; increase for larger tables)
 """
 
 import os
@@ -47,7 +47,7 @@ SNS_TOPIC       = os.environ.get("SNS_ALERT_TOPIC_ARN", "").strip()
 MIN_ROW_COUNT   = int(os.environ.get("DQ_MIN_ROW_COUNT",   "10"))
 MAX_NULL_PCT    = float(os.environ.get("DQ_MAX_NULL_PERCENT", "5.0"))
 FRESHNESS_HOURS = int(os.environ.get("DQ_FRESHNESS_HOURS", "48"))
-SAMPLE_ROWS     = int(os.environ.get("DQ_SAMPLE_ROWS",     "1000"))
+SAMPLE_ROWS     = int(os.environ.get("DQ_SAMPLE_ROWS",     "10000"))
 
 EXPECTED_CITIES = {"ha-noi", "ho-chi-minh-city", "da-nang", "gia-lai", "cao-bang"}
 AQI_MIN, AQI_MAX = 0, 500

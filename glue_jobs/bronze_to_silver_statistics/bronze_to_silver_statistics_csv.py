@@ -119,10 +119,18 @@ df = datasource.toDF()
 
 # ── Step 2: Filter only 5 cities by station name keyword ───────────────────
 # Rename first to avoid Spark parsing column names with spaces incorrectly
-df = df     .withColumnRenamed("station id",   "station_id_str")     .withColumnRenamed("station name", "station_name_raw")
+df = (
+    df
+    .withColumnRenamed("station id",   "station_id_str")
+    .withColumnRenamed("station name", "station_name_raw")
+)
 
-# station id is bigint in Catalog → no need to filter != "" 
-df = df.filter(F.col("station_id_str").isNotNull())        .filter(F.col("station_name_raw").isNotNull())
+# station id is bigint in Catalog → no need to filter != ""
+df = (
+    df
+    .filter(F.col("station_id_str").isNotNull())
+    .filter(F.col("station_name_raw").isNotNull())
+)
 
 
 # Build CASE WHEN from CITY_KEYWORDS_MAP
@@ -138,7 +146,11 @@ def build_city_col():
             expr = expr.when(cond, F.lit(city_slug))
     return expr.otherwise(F.lit(None))
 
-df = df.withColumn("queried_city", build_city_col())        .filter(F.col("queried_city").isNotNull())
+df = (
+    df
+    .withColumn("queried_city", build_city_col())
+    .filter(F.col("queried_city").isNotNull())
+)
 
 logger.info(f"Rows after filter 5 cities: {df.count()}")
 
@@ -228,7 +240,12 @@ df = df.select(
 from pyspark.sql.window import Window
 
 w  = Window.partitionBy("waqi_idx", "measured_at").orderBy(F.col("ingested_at").desc())
-df = df.withColumn("_rn", F.row_number().over(w))        .filter(F.col("_rn") == 1)        .drop("_rn")
+df = (
+    df
+    .withColumn("_rn", F.row_number().over(w))
+    .filter(F.col("_rn") == 1)
+    .drop("_rn")
+)
 logger.info(f"Rows after dedup: {df.count()}")
 
 # ── Step 5: Build dim_station ────────────────────────────────────────────────
@@ -257,17 +274,22 @@ logger.info("Building fact_aqi...")
 
 # Add partition columns from measured_at
 
-fact_aqi = df.select(
-    "waqi_idx", "measured_at",
-    "aqi", "dominant_pollutant",
-    "pm25", "pm10", "co", "no2", "o3", "so2",
-    "humidity", "temperature", "pressure", "wind",
-    "source", "ingested_at",
-    # Partition keys
-    F.col("queried_city"),
-    F.year("measured_at").cast("string").alias("year"),
-    F.month("measured_at").cast("string").alias("month"),
-).filter(F.col("measured_at").isNotNull()) .filter(F.col("aqi").isNotNull()) .filter(F.col("dominant_pollutant").isNotNull())
+fact_aqi = (
+    df.select(
+        "waqi_idx", "measured_at",
+        "aqi", "dominant_pollutant",
+        "pm25", "pm10", "co", "no2", "o3", "so2",
+        "humidity", "temperature", "pressure", "wind",
+        "source", "ingested_at",
+        # Partition keys — keep month zero-padded to match api.py (e.g. "01" not "1")
+        F.col("queried_city"),
+        F.year("measured_at").cast("string").alias("year"),
+        F.lpad(F.month("measured_at"), 2, "0").alias("month"),
+    )
+    .filter(F.col("measured_at").isNotNull())
+    .filter(F.col("aqi").isNotNull())
+    .filter(F.col("dominant_pollutant").isNotNull())
+)
 
 
 fact_aqi_dynf = DynamicFrame.fromDF(fact_aqi, glueContext, "fact_aqi_csv")

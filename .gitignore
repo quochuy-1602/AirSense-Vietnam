@@ -1,1 +1,31 @@
 catalogs-optional/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.venv
+venv/
+*.tfvars
+!*.example.tfvars
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfstate.lock.info
+.terraform.lock.hcl
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store

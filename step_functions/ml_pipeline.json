@@ -1,0 +1,288 @@
+{
+  "Comment": "AQ ML Pipeline: Silver -> ML Features -> Parallel Training -> Batch Inference -> Gold (forecast + anomaly) -> SNS. Template — rendered by Terraform `templatefile()` (infra/terraform/step_functions.tf) or manually via envsubst.",
+  "StartAt": "Run Feature Engineering Job",
+  "States": {
+
+    "Run Feature Engineering Job": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${SILVER_TO_ML_FEATURES}",
+        "Arguments": {
+          "--silver_database": "glue-pipeline-silver-dev",
+          "--silver_table": "fact_aqi",
+          "--ml_features_bucket": "${ML_BUCKET}",
+          "--ml_features_database": "glue-pipeline-ml-dev",
+          "--forecast_horizon_h": "24"
+        }
+      },
+      "ResultPath": "$.fe_result",
+      "Next": "Parallel Training",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "Notify ML Failure",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+
+    "Parallel Training": {
+      "Type": "Parallel",
+      "ResultPath": "$.training_results",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "Notify ML Failure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Branches": [
+        {
+          "StartAt": "Train Forecast Model",
+          "States": {
+            "Train Forecast Model": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sagemaker:createTrainingJob.sync",
+              "Parameters": {
+                "TrainingJobName.$": "States.Format('aqi-forecast-{}', $$.Execution.Name)",
+                "AlgorithmSpecification": {
+                  "TrainingImage": "683313688378.dkr.ecr.${AWS_REGION}.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3",
+                  "TrainingInputMode": "File"
+                },
+                "RoleArn": "${SAGEMAKER_ROLE_ARN}",
+                "InputDataConfig": [
+                  {
+                    "ChannelName": "train",
+                    "DataSource": {
+                      "S3DataSource": {
+                        "S3DataType": "S3Prefix",
+                        "S3Uri": "s3://${ML_BUCKET}/features/aqi_features/",
+                        "S3DataDistributionType": "FullyReplicated"
+                      }
+                    },
+                    "ContentType": "application/x-parquet"
+                  }
+                ],
+                "OutputDataConfig": {
+                  "S3OutputPath": "s3://${ML_BUCKET}/training-output/forecast/"
+                },
+                "ResourceConfig": {
+                  "InstanceType": "ml.m5.xlarge",
+                  "InstanceCount": 1,
+                  "VolumeSizeInGB": 30
+                },
+                "StoppingCondition": {
+                  "MaxRuntimeInSeconds": 3600
+                },
+                "HyperParameters": {
+                  "sagemaker_program": "train.py",
+                  "sagemaker_submit_directory": "s3://${ML_BUCKET}/source/forecasting.tar.gz",
+                  "forecast_horizon_h": "24",
+                  "n_estimators": "1000",
+                  "max_depth": "6",
+                  "learning_rate": "0.05",
+                  "model_package_group": "aqi-forecast-models",
+                  "auto_approve_mae_threshold": "20.0"
+                }
+              }
+            }
+          }
+        },
+        {
+          "StartAt": "Train Anomaly Model",
+          "States": {
+            "Train Anomaly Model": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sagemaker:createTrainingJob.sync",
+              "Parameters": {
+                "TrainingJobName.$": "States.Format('aqi-anomaly-{}', $$.Execution.Name)",
+                "AlgorithmSpecification": {
+                  "TrainingImage": "683313688378.dkr.ecr.${AWS_REGION}.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3",
+                  "TrainingInputMode": "File"
+                },
+                "RoleArn": "${SAGEMAKER_ROLE_ARN}",
+                "InputDataConfig": [
+                  {
+                    "ChannelName": "train",
+                    "DataSource": {
+                      "S3DataSource": {
+                        "S3DataType": "S3Prefix",
+                        "S3Uri": "s3://${ML_BUCKET}/features/aqi_features/",
+                        "S3DataDistributionType": "FullyReplicated"
+                      }
+                    },
+                    "ContentType": "application/x-parquet"
+                  }
+                ],
+                "OutputDataConfig": {
+                  "S3OutputPath": "s3://${ML_BUCKET}/training-output/anomaly/"
+                },
+                "ResourceConfig": {
+                  "InstanceType": "ml.m5.large",
+                  "InstanceCount": 1,
+                  "VolumeSizeInGB": 20
+                },
+                "StoppingCondition": {
+                  "MaxRuntimeInSeconds": 1800
+                },
+                "HyperParameters": {
+                  "sagemaker_program": "train.py",
+                  "sagemaker_submit_directory": "s3://${ML_BUCKET}/source/anomaly.tar.gz",
+                  "contamination": "0.02",
+                  "n_estimators": "200",
+                  "model_package_group": "aqi-anomaly-models"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "Next": "Trigger Batch Inference"
+    },
+
+    "Trigger Batch Inference": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ML_INFERENCE_LAMBDA_ARN}",
+        "Payload": {
+          "mode": "trigger",
+          "run_id.$": "$$.Execution.Name"
+        }
+      },
+      "ResultSelector": {
+        "jobs_info.$": "$.Payload"
+      },
+      "ResultPath": "$.inference_trigger",
+      "Next": "Wait For Forecast Job"
+    },
+
+    "Wait For Forecast Job": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:sagemaker:describeTransformJob",
+      "Parameters": {
+        "TransformJobName.$": "$.inference_trigger.jobs_info.forecast_job"
+      },
+      "ResultPath": "$.forecast_status",
+      "Next": "Forecast Job Done?"
+    },
+
+    "Forecast Job Done?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.forecast_status.TransformJobStatus",
+          "StringEquals": "Completed",
+          "Next": "Wait For Anomaly Job"
+        },
+        {
+          "Or": [
+            { "Variable": "$.forecast_status.TransformJobStatus", "StringEquals": "Failed" },
+            { "Variable": "$.forecast_status.TransformJobStatus", "StringEquals": "Stopped" }
+          ],
+          "Next": "Notify ML Failure"
+        }
+      ],
+      "Default": "Wait 30s (Forecast)"
+    },
+
+    "Wait 30s (Forecast)": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "Wait For Forecast Job"
+    },
+
+    "Wait For Anomaly Job": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:sagemaker:describeTransformJob",
+      "Parameters": {
+        "TransformJobName.$": "$.inference_trigger.jobs_info.anomaly_job"
+      },
+      "ResultPath": "$.anomaly_status",
+      "Next": "Anomaly Job Done?"
+    },
+
+    "Anomaly Job Done?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.anomaly_status.TransformJobStatus",
+          "StringEquals": "Completed",
+          "Next": "Collect and Save to Gold"
+        },
+        {
+          "Or": [
+            { "Variable": "$.anomaly_status.TransformJobStatus", "StringEquals": "Failed" },
+            { "Variable": "$.anomaly_status.TransformJobStatus", "StringEquals": "Stopped" }
+          ],
+          "Next": "Notify ML Failure"
+        }
+      ],
+      "Default": "Wait 30s (Anomaly)"
+    },
+
+    "Wait 30s (Anomaly)": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "Wait For Anomaly Job"
+    },
+
+    "Collect and Save to Gold": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ML_INFERENCE_LAMBDA_ARN}",
+        "Payload": {
+          "mode": "collect",
+          "jobs_info.$": "$.inference_trigger.jobs_info"
+        }
+      },
+      "ResultSelector": {
+        "summary.$": "$.Payload"
+      },
+      "ResultPath": "$.collect_result",
+      "Next": "Notify ML Success",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "Notify ML Failure",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+
+    "Notify ML Success": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${SNS_TOPIC_ARN}",
+        "Subject": "[AQ Pipeline] ML pipeline completed",
+        "Message.$": "States.Format('ML pipeline succeeded.\nRun: {}\nForecast rows: {}\nAnomaly rows: {}\nHigh severity: {}\nForecast Gold: {}\nAnomaly Gold: {}', $$.Execution.Name, $.collect_result.summary.forecast_count, $.collect_result.summary.anomaly_count, $.collect_result.summary.high_severity_count, $.collect_result.summary.forecast_gold, $.collect_result.summary.anomaly_gold)"
+      },
+      "Next": "ML Pipeline Complete"
+    },
+
+    "Notify ML Failure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${SNS_TOPIC_ARN}",
+        "Subject": "[AQ Pipeline] ML pipeline FAILED",
+        "Message.$": "States.Format('ML pipeline failed.\nRun: {}\nError: {}\nTime: {}', $$.Execution.Name, $.error.Cause, $$.Execution.StartTime)"
+      },
+      "Next": "ML Pipeline Failed"
+    },
+
+    "ML Pipeline Complete": {
+      "Type": "Succeed"
+    },
+
+    "ML Pipeline Failed": {
+      "Type": "Fail",
+      "Error": "MLPipelineFailed",
+      "Cause": "ML pipeline failed - check SNS notification for details"
+    }
+
+  }
+}

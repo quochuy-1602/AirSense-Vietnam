@@ -14,8 +14,8 @@ S3 structure:
 Environment Variables:
     WAQI_CITIES           — Comma-separated city slugs (default: see CITIES below)
     S3_BUCKET_BRONZE - data-pipeline-bronze-ap-dev
-    SNS_ALERT_TOPIC_ARN - arn:aws:sns:us-east-1:597720049681:data-pipeline-alerts-dev
-    WAQI_API_TOKEN - e5e167e2886cd9ae2ecxxxxx
+    SNS_ALERT_TOPIC_ARN - arn:aws:sns:ap-southeast-2:<ACCOUNT_ID>:data-pipeline-alerts-dev
+    WAQI_API_TOKEN - <WAQI_API_TOKEN>
 """
 # IAM - lambda-plo-crawler-role
  

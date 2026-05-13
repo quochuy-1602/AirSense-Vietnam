@@ -1,5 +1,5 @@
 {
-  "Comment": "Air Quality Pipeline: Bronze API → Silver → DQ Check → Gold → SNS",
+  "Comment": "Air Quality Pipeline: Bronze API → Silver → DQ Check → Gold → SNS. Template — rendered by Terraform `templatefile()` (infra/terraform/step_functions.tf) or manually via envsubst.",
   "StartAt": "Run Bronze API to Silver",
   "States": {
 
@@ -7,14 +7,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::glue:startJobRun.sync",
       "Parameters": {
-        "JobName": "bronze_to_silver_statistics_api",
-        "Arguments": {
-          "--bronze_database": "glue-pipeline-bronze-dev",
-          "--bronze_table": "api_raw",
-          "--silver_bucket": "data-pipeline-silver-ap-dev",
-          "--silver_database": "glue-pipeline-silver-dev",
-          "--stale_hours": "72"
-        }
+        "JobName": "${BRONZE_TO_SILVER_API}"
       },
       "ResultPath": "$.bronze_result",
       "Next": "Run DQ Check Silver",
@@ -31,7 +24,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "arn:aws:lambda:ap-southeast-2:600868920829:function:dq_check_silver",
+        "FunctionName": "${DQ_LAMBDA_ARN}",
         "Payload": {}
       },
       "ResultSelector": {
@@ -66,12 +59,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::glue:startJobRun.sync",
       "Parameters": {
-        "JobName": "silver_to_gold_analytics",
-        "Arguments": {
-          "--silver_database": "glue-pipeline-silver-dev",
-          "--gold_bucket": "data-pipeline-gold-ap-dev",
-          "--gold_database": "glue-pipeline-gold-dev"
-        }
+        "JobName": "${SILVER_TO_GOLD_JOB}"
       },
       "ResultPath": "$.gold_result",
       "Next": "Notify Success",
@@ -88,7 +76,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
-        "TopicArn": "arn:aws:sns:ap-southeast-2:600868920829:data-pipeline-alerts-dev",
+        "TopicArn": "${SNS_TOPIC_ARN}",
         "Subject": "[AQ Pipeline] Pipeline completed successfully",
         "Message.$": "States.Format('Pipeline ran successfully!\n\nDQ Checks: {}/{} passed\nGold tables updated: gold_aqi_daily_summary, gold_aqi_city_ranking\n\nTime: {}', $.dq_result.checks_passed, $.dq_result.checks_total, $$.Execution.StartTime)"
       },
@@ -99,7 +87,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
-        "TopicArn": "arn:aws:sns:ap-southeast-2:600868920829:data-pipeline-alerts-dev",
+        "TopicArn": "${SNS_TOPIC_ARN}",
         "Subject": "[AQ Pipeline] Data Quality Check FAILED — Gold Job stopped",
         "Message.$": "States.Format('DQ checks FAILED: {}/{} passed\nGold Job was not executed.\n\nCheck Lambda logs for details.', $.dq_result.checks_passed, $.dq_result.checks_total)"
       },
@@ -110,7 +98,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
-        "TopicArn": "arn:aws:sns:ap-southeast-2:600868920829:data-pipeline-alerts-dev",
+        "TopicArn": "${SNS_TOPIC_ARN}",
         "Subject": "[AQ Pipeline] Pipeline FAILED",
         "Message.$": "States.Format('Pipeline failed!\n\nError: {}\n\nTime: {}', $.error.Cause, $$.Execution.StartTime)"
       },

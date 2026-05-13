@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1200" math="0" shadow="0">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+
+    <!-- ==================== TITLE ==================== -->
+    <mxCell id="title" value="AirSense Vietnam — Platform Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1;fontColor=#1a1a2e;" vertex="1" parent="1">
+      <mxGeometry x="400" y="20" width="860" height="40" as="geometry" />
+    </mxCell>
+
+    <!-- ==================== INGESTION LAYER ==================== -->
+    <mxCell id="layer_ingest" value="INGESTION" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;verticalAlign=top;" vertex="1" parent="1">
+      <mxGeometry x="80" y="80" width="800" height="130" as="geometry" />
+    </mxCell>
+
+    <mxCell id="kaggle" value="Kaggle CSV&#xa;(one-time)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontStyle=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="120" y="120" width="110" height="60" as="geometry" />
+    </mxCell>
+
+    <mxCell id="eb" value="EventBridge&#xa;(3x/day: 08:00, 14:00, 20:00 ICT)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="270" y="120" width="200" height="60" as="geometry" />
+    </mxCell>
+
+    <mxCell id="lam_ingest" value="Lambda&#xa;WAQI API Ingestion&#xa;(5 cities)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="510" y="120" width="170" height="60" as="geometry" />
+    </mxCell>
+
+    <mxCell id="sns_ingest" value="SNS&#xa;Alert" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="720" y="120" width="100" height="60" as="geometry" />
+    </mxCell>
+
+    <!-- Ingestion arrows -->
+    <mxCell id="e_eb_lam" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="eb" target="lam_ingest" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_lam_sns" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="lam_ingest" target="sns_ingest" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- ==================== NOTEBOOKS (right top) ==================== -->
+    <mxCell id="layer_nb" value="Notebooks (Local Prototyping)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;fontStyle=1;verticalAlign=top;" vertex="1" parent="1">
+      <mxGeometry x="920" y="80" width="640" height="200" as="geometry" />
+    </mxCell>
+
+    <mxCell id="nb1" value="01_eda.ipynb&#xa;EDA + Distributions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontColor=#333333;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="950" y="120" width="280" height="60" as="geometry" />
+    </mxCell>
+    <mxCell id="nb2" value="02_feature_engineering.ipynb&#xa;Lag / Rolling / Time features" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontColor=#333333;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="1250" y="120" width="280" height="60" as="geometry" />
+    </mxCell>
+    <mxCell id="nb3" value="03_aqi_forecasting.ipynb&#xa;XGBoost + LSTM + SHAP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontColor=#333333;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="950" y="200" width="280" height="60" as="geometry" />
+    </mxCell>
+    <mxCell id="nb4" value="04_anomaly_detection.ipynb&#xa;Isolation Forest + Z-score" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontColor=#333333;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="1250" y="200" width="280" height="60" as="geometry" />
+    </mxCell>
+
+    <!-- ==================== BRONZE LAYER ==================== -->
+    <mxCell id="layer_bronze" value="BRONZE LAYER (S3)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f9dbc8;strokeColor=#d79b00;fontSize=11;fontStyle=1;verticalAlign=top;" vertex="1" parent="1">
+      <mxGeometry x="80" y="250" width="800" height="120" as="geometry" />
+    </mxCell>
+
+    <mxCell id="s3_bronze_api" value="S3: api_raw/&#xa;partitioned: city/year/month/day" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="350" y="290" width="220" height="60" as="geometry" />
+    </mxCell>
+
+    <mxCell id="s3_bronze_csv" value="S3: historical_csv/&#xa;Kaggle 2021 (24 stations)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="620" y="290" width="220" height="60" as="geometry" />
+    </mxCell>
+
+    <!-- Ingestion → Bronze arrows -->
+    <mxCell id="e_lam_bronze_api" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="lam_ingest" target="s3_bronze_api" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_kaggle_bronze" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="kaggle" target="s3_bronze_csv" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="175" y="230" />
+          <mxPoint x="730" y="230" />
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- ==================== GLUE Bronze → Silver ==================== -->
+    <mxCell id="glue_api" value="Glue Job&#xa;bronze_to_silver_api&#xa;(incremental, Job Bookmark)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="350" y="400" width="220" height="65" as="geometry" />
+    </mxCell>
+
+    <mxCell id="glue_csv" value="Glue Job&#xa;bronze_to_silver_csv&#xa;(one-time, flag-guarded)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="620" y="400" width="220" height="65" as="geometry" />
+    </mxCell>
+
+    <mxCell id="e_bronze_api_glue" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="s3_bronze_api" target="glue_api" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_bronze_csv_glue" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="s3_bronze_csv" target="glue_csv" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- ==================== SILVER LAYER ==================== -->
+    <mxCell id="layer_silver" value="SILVER LAYER (S3)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;verticalAlign=top;" vertex="1" parent="1">
+      <mxGeometry x="80" y="490" width="800" height="120" as="geometry" />
+    </mxCell>
+
+    <mxCell id="dim_station" value="dim_station&#xa;(station metadata)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="350" y="530" width="220" height="60" as="geometry" />
+    </mxCell>
+
+    <mxCell id="fact_aqi" value="fact_aqi&#xa;(measurements, partitioned)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="620" y="530" width="220" height="60" as="geometry" />
+    </mxCell>
+
+    <mxCell id="e_glueapi_dim" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="glue_api" target="dim_station" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_glueapi_fact" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.3;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="glue_api" target="fact_aqi" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_gluecsv_fact" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.7;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="glue_csv" target="fact_aqi" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- ==================== DQ CHECK ==================== -->
+    <mxCell id="dq_lambda" value="Lambda: DQ Check&#xa;(8 checks via Athena)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="485" y="650" width="200" height="60" as="geometry" />
+    </mxCell>
+
+    <mxCell id="dq_pass" value="DQ Passed ✓" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="300" y="740" width="140" height="40" as="geometry" />
+    </mxCell>
+
+    <mxCell id="dq_fail" value="DQ Failed ✗&#xa;→ SNS Alert" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="720" y="740" width="140" height="40" as="geometry" />
+    </mxCell>
+
+    <mxCell id="e_fact_dq" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.7;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="fact_aqi" target="dq_lambda" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_dim_dq" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.3;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="dim_station" target="dq_lambda" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_dq_pass" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="dq_lambda" target="dq_pass" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_dq_fail" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;dashed=1;" edge="1" source="dq_lambda" target="dq_fail" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- ==================== GOLD LAYER ==================== -->
+    <mxCell id="layer_gold" value="GOLD LAYER (S3)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;fontStyle=1;verticalAlign=top;" vertex="1" parent="1">
+      <mxGeometry x="80" y="810" width="800" height="160" as="geometry" />
+    </mxCell>
+
+    <mxCell id="glue_gold" value="Glue Job&#xa;silver_to_gold_analytics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="130" y="860" width="200" height="60" as="geometry" />
+    </mxCell>
+
+    <mxCell id="gold_daily" value="gold_aqi_daily_summary" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="380" y="845" width="220" height="35" as="geometry" />
+    </mxCell>
+
+    <mxCell id="gold_rank" value="gold_aqi_city_ranking" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="380" y="890" width="220" height="35" as="geometry" />
+    </mxCell>
+
+    <mxCell id="gold_station" value="gold_station_summary" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="620" y="867" width="220" height="35" as="geometry" />
+    </mxCell>
+
+    <mxCell id="e_dqpass_gold" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="dq_pass" target="glue_gold" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_gold_daily" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="glue_gold" target="gold_daily" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_gold_rank" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="glue_gold" target="gold_rank" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_gold_station" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="glue_gold" target="gold_station" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="230" y="950" />
+          <mxPoint x="730" y="950" />
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- ==================== ML LAYER (right column) ==================== -->
+    <mxCell id="layer_ml" value="ML LAYER (SageMaker)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;fontStyle=1;verticalAlign=top;" vertex="1" parent="1">
+      <mxGeometry x="920" y="300" width="640" height="670" as="geometry" />
+    </mxCell>
+
+    <mxCell id="glue_features" value="Glue Job&#xa;silver_to_ml_features&#xa;(lag / rolling / time features)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="1120" y="340" width="240" height="70" as="geometry" />
+    </mxCell>
+
+    <mxCell id="ml_features_store" value="S3: ml_features/&#xa;Glue table: aqi_features" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="1120" y="440" width="240" height="50" as="geometry" />
+    </mxCell>
+
+    <mxCell id="sm_forecast" value="SageMaker Training&#xa;XGBoost Forecasting&#xa;(MAE / RMSE / MAPE)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontStyle=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="960" y="530" width="200" height="70" as="geometry" />
+    </mxCell>
+
+    <mxCell id="sm_anomaly" value="SageMaker Training&#xa;Isolation Forest Anomaly&#xa;(contamination = 0.02)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontStyle=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="1320" y="530" width="200" height="70" as="geometry" />
+    </mxCell>
+
+    <mxCell id="model_registry" value="SageMaker Model Registry&#xa;aqi-forecast-models&#xa;aqi-anomaly-models" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="1120" y="640" width="240" height="60" as="geometry" />
+    </mxCell>
+
+    <mxCell id="lam_inference" value="Lambda: ml_inference&#xa;(Batch Transform orchestrator)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="1120" y="730" width="240" height="60" as="geometry" />
+    </mxCell>
+
+    <mxCell id="sm_batch_transform" value="SageMaker Batch Transform&#xa;(forecast + anomaly)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="1120" y="810" width="240" height="50" as="geometry" />
+    </mxCell>
+
+    <mxCell id="gold_ml_tables" value="gold_aqi_forecast&#xa;gold_aqi_anomalies" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="1120" y="880" width="240" height="55" as="geometry" />
+    </mxCell>
+
+    <mxCell id="sns_ml_alert" value="SNS&#xa;Anomaly Alert" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="1400" y="730" width="130" height="60" as="geometry" />
+    </mxCell>
+
+    <!-- ML arrows -->
+    <mxCell id="e_fact_features" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="fact_aqi" target="glue_features" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="900" y="560" />
+          <mxPoint x="900" y="375" />
+          <mxPoint x="1100" y="375" />
+        </Array>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="e_features_store" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="glue_features" target="ml_features_store" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_features_forecast" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="ml_features_store" target="sm_forecast" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_features_anomaly" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="ml_features_store" target="sm_anomaly" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_forecast_reg" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="sm_forecast" target="model_registry" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_anomaly_reg" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="sm_anomaly" target="model_registry" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_reg_lam" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="model_registry" target="lam_inference" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_lam_bt" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="lam_inference" target="sm_batch_transform" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_bt_gold" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=classic;" edge="1" source="sm_batch_transform" target="gold_ml_tables" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e_lam_snsml" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;endArrow=classic;dashed=1;" edge="1" source="lam_inference" target="sns_ml_alert" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- ==================== STEP FUNCTIONS LABELS ==================== -->
+    <mxCell id="sf_etl" value="Step Functions&#xa;ETL Pipeline" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=3;fontSize=10;dashed=1;" vertex="1" parent="1">
+      <mxGeometry x="100" y="660" width="140" height="50" as="geometry" />
+    </mxCell>
+
+    <mxCell id="sf_ml" value="Step Functions&#xa;ML Pipeline" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=3;fontSize=10;dashed=1;" vertex="1" parent="1">
+      <mxGeometry x="940" y="310" width="140" height="40" as="geometry" />
+    </mxCell>
+
+    <!-- ==================== LEGEND ==================== -->
+    <mxCell id="legend_box" value="Legend" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=10;fontStyle=1;verticalAlign=top;" vertex="1" parent="1">
+      <mxGeometry x="80" y="1010" width="800" height="150" as="geometry" />
+    </mxCell>
+    <mxCell id="legend_lambda" value="Lambda" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="100" y="1045" width="80" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="legend_glue" value="Glue Job" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="200" y="1045" width="80" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="legend_s3" value="S3 Data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="300" y="1045" width="80" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="legend_sm" value="SageMaker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="400" y="1045" width="90" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="legend_silver_box" value="Silver Table" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="510" y="1045" width="90" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="legend_gold_box" value="Gold Table" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="620" y="1045" width="90" height="30" as="geometry" />
+    </mxCell>
+    <mxCell id="legend_solid" value="━━  Data flow" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="100" y="1090" width="150" height="25" as="geometry" />
+    </mxCell>
+    <mxCell id="legend_dashed" value="╌╌╌  Alert / Notification" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="260" y="1090" width="200" height="25" as="geometry" />
+    </mxCell>
+    <mxCell id="legend_sf" value="⬛ Step Functions workflow (ETL / ML)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="460" y="1090" width="300" height="25" as="geometry" />
+    </mxCell>
+
+  </root>
+</mxGraphModel>

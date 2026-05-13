@@ -248,14 +248,25 @@ station_df = df.join(
 )
 
 # dominant_pollutant per station per month
-dominant_station = df.groupBy("waqi_idx", "year", "month", "dominant_pollutant")     .agg(F.count("*").alias("pollutant_count"))
+dominant_station = (
+    df.groupBy("waqi_idx", "year", "month", "dominant_pollutant")
+    .agg(F.count("*").alias("pollutant_count"))
+)
 
-w_dom_station = Window.partitionBy("waqi_idx", "year", "month")     .orderBy(F.col("pollutant_count").desc())
+w_dom_station = (
+    Window.partitionBy("waqi_idx", "year", "month")
+    .orderBy(F.col("pollutant_count").desc())
+)
 
-dominant_station = dominant_station     .withColumn("_rank", F.row_number().over(w_dom_station))     .filter(F.col("_rank") == 1)     .select(
+dominant_station = (
+    dominant_station
+    .withColumn("_rank", F.row_number().over(w_dom_station))
+    .filter(F.col("_rank") == 1)
+    .select(
         "waqi_idx", "year", "month",
         F.col("dominant_pollutant").alias("dominant_pollutant_mode")
     )
+)
 
 # Aggregate monthly per station
 station_monthly = station_df.groupBy(
@@ -272,7 +283,11 @@ station_monthly = station_df.groupBy(
 )
 
 # Join dominant_pollutant
-station_monthly = station_monthly     .join(dominant_station, on=["waqi_idx", "year", "month"], how="left")     .withColumnRenamed("dominant_pollutant_mode", "dominant_pollutant")
+station_monthly = (
+    station_monthly
+    .join(dominant_station, on=["waqi_idx", "year", "month"], how="left")
+    .withColumnRenamed("dominant_pollutant_mode", "dominant_pollutant")
+)
 
 # pollution_level based on avg_aqi
 station_monthly = station_monthly.withColumn(
@@ -286,9 +301,16 @@ station_monthly = station_monthly.withColumn(
 )
 
 # Rank stations within same city by avg_aqi DESC
-w_station_rank = Window.partitionBy("queried_city", "year", "month")     .orderBy(F.col("avg_aqi").desc())
+w_station_rank = (
+    Window.partitionBy("queried_city", "year", "month")
+    .orderBy(F.col("avg_aqi").desc())
+)
 
-station_monthly = station_monthly     .withColumn("rank_in_city", F.dense_rank().over(w_station_rank))     .withColumn("_aggregated_at", F.current_timestamp())
+station_monthly = (
+    station_monthly
+    .withColumn("rank_in_city", F.dense_rank().over(w_station_rank))
+    .withColumn("_aggregated_at", F.current_timestamp())
+)
 
 logger.info(f"gold_station_summary rows: {station_monthly.count()}")
 
